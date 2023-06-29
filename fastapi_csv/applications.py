@@ -64,96 +64,113 @@ class FastAPI_CSV(FastAPI):
     #     # Return modified results so they get passed to the user.
     #     return results
 
-    def __init__(self, csv_path: Union[str, Path]) -> None:
+    def __init__(self, csv_paths: list([Union[str, Path]])) -> None:
         """
         Initializes a FastAPI instance that serves data from a CSV file.
 
         Args:
-            csv_path (Union[str, Path]): The path to the CSV file, can also be a URL
+            csv_path list of (Union[str, Path]): The path to the CSV files, can also be a URLs
         """
         super().__init__()
 
-        # Read CSV file to pandas dataframe and create sqlite3 database from it.
-        self.csv_path = csv_path
-        self.table_name = Path(self.csv_path).stem.replace('-', '_')
+        # Read CSV files to pandas dataframe and create sqlite3 database from it.
+        self.csv_paths = csv_paths
+        table_names = []
+
+        for path in csv_paths:
+            table_names.append(Path(path).stem.replace('-', '_'))
+        
+
+        self.table_names = table_names
         self.con = None
-        df = self.update_database()
+        dfs = self.update_database()
 
         # Add an endpoint for the CSV file with one query parameter for each column.
         # We hack into fastapi a bit here to inject the query parameters at runtime
         # based on the column names/types.
 
         # First, define a generic endpoint method, which queries the database.
-        def generic_get(**kwargs):
-            selected_cols = []
-            where_clauses = []
-            use_distinct = False
-            for name, val in kwargs.items():
-                if val is not None:
-                    if name == "use_distinct":
-                        use_distinct = True
-                    elif name.endswith("_selected"):
-                        selected_cols.append(name[:-9])
-                    elif name.endswith("_greaterThan"):
-                        where_clauses.append(f"{name[:-12]}>{val}")
-                    elif name.endswith("_greaterThanEqual"):
-                        where_clauses.append(f"{name[:-17]}>={val}")
-                    elif name.endswith("_lessThan"):
-                        where_clauses.append(f"{name[:-9]}<{val}")
-                    elif name.endswith("_lessThanEqual"):
-                        where_clauses.append(f"{name[:-14]}<={val}")
-                    elif name.endswith("_contains"):
-                        where_clauses.append(f"instr({name[:-9]}, '{val}') > 0")
-                    elif name.endswith("_like"):
-                        where_clauses.append(f"{name[:-5]} LIKE '{val}'")
-                    elif name.endswith("_regex"):
-                        where_clauses.append(f"{name[:-6]} REGEXP '{val}'")
-                    elif name.endswith("_isBefore"):
-                        where_clauses.append(f"DATE({name[:-9]}) < DATE('{val}')")
-                    elif name.endswith("_isAfter"):
-                        where_clauses.append(f"DATE({name[:-8]}) > DATE('{val}')")
-                    else:
-                        if isinstance(val, str):
-                            val = f"'{val}'"
-                        where_clauses.append(f"{name}={val}")
-            if where_clauses:
-                where = "WHERE " + " AND ".join(where_clauses)
-            else:
-                where = ""
 
-            selection = ','.join(selected_cols)
-            sql_query = f"SELECT {'DISTINCT' if use_distinct else ''} {selection if len(selected_cols) else '*'} FROM {self.table_name} {where}"
-            dicts = self.query_database(sql_query)
-            return dicts
+        def generic_get_wrapper(table_name):
+            def generic_get(**kwargs):
+                selected_cols = []
+                where_clauses = []
+                use_distinct = False
+                for name, val in kwargs.items():
+                
+                    if val is not None:
+                        
+                        if name == "use_distinct":
+                            use_distinct = True
+                        elif name.endswith("_selected"):
+                            selected_cols.append(name[:-9])
+                        elif name.endswith("_greaterThan"):
+                            where_clauses.append(f"{name[:-12]}>{val}")
+                        elif name.endswith("_greaterThanEqual"):
+                            where_clauses.append(f"{name[:-17]}>={val}")
+                        elif name.endswith("_lessThan"):
+                            where_clauses.append(f"{name[:-9]}<{val}")
+                        elif name.endswith("_lessThanEqual"):
+                            where_clauses.append(f"{name[:-14]}<={val}")
+                        elif name.endswith("_contains"):
+                            where_clauses.append(f"instr({name[:-9]}, '{val}') > 0")
+                        elif name.endswith("_like"):
+                            where_clauses.append(f"{name[:-5]} LIKE '{val}'")
+                        elif name.endswith("_regex"):
+                            where_clauses.append(f"{name[:-6]} REGEXP '{val}'")
+                        elif name.endswith("_isBefore"):
+                            where_clauses.append(f"DATE({name[:-9]}) < DATE('{val}')")
+                        elif name.endswith("_isAfter"):
+                            where_clauses.append(f"DATE({name[:-8]}) > DATE('{val}')")
+                        else:
+                            if isinstance(val, str):
+                                val = f"'{val}'"
+                            where_clauses.append(f"{name}={val}")
+                if where_clauses:
+                    where = "WHERE " + " AND ".join(where_clauses)
+                else:
+                    where = ""
 
-        # Add the method as GET endpoint to fastapi.
-        route_path = f"/{self.table_name}"
-        self.get(route_path, name=self.table_name)(generic_get)
+                selection = ','.join(selected_cols)
+                sql_query = f"SELECT {'DISTINCT' if use_distinct else ''} {selection if len(selected_cols) else '*'} FROM {table_name} {where}"
+                dicts = self.query_database(sql_query)
+                return dicts
+            return generic_get
+       
+        
+        index = 0
+        for tbn in self.table_names:
 
-        # Remove all auto-generated query parameters (=one for `kwargs`).
-        self._clear_query_params(route_path)
+            # Add the method as GET endpoint to fastapi.
+            route_path = f"/{tbn}"
+            generic_get = generic_get_wrapper(tbn)
+            self.get(route_path, name=tbn)(generic_get)
+        
+            # Remove all auto-generated query parameters (=one for `kwargs`).
+            self._clear_query_params(route_path)
 
-        # Add use_distinct query param
-        self._add_query_param(route_path, 'use_distinct', bool)
+            # Add use_distinct query param
+            self._add_query_param(route_path, 'use_distinct', bool)
 
-        # Add new query parameters based on column names and data types.
-        for col, dtype in zip(df.columns, df.dtypes):
-            type_ = dtype_to_type(dtype)
-            self._add_query_param(route_path, col, type_)
-            # Use as a flag to select only given columns
-            self._add_query_param(route_path, col + "_selected", bool)
-            if type_ in (int, float):
-                self._add_query_param(route_path, col + "_greaterThan", type_)
-                self._add_query_param(route_path, col + "_greaterThanEqual", type_)
-                self._add_query_param(route_path, col + "_lessThan", type_)
-                self._add_query_param(route_path, col + "_lessThanEqual", type_)
-            elif type_ == str:
-                self._add_query_param(route_path, col + "_contains", type_)
-                self._add_query_param(route_path, col + "_like", type_)
-                self._add_query_param(route_path, col + "_regex", type_)
-                if is_date_string(df[col].iloc[df[col].first_valid_index()]):
-                    self._add_query_param(route_path, col + "_isBefore", type_)
-                    self._add_query_param(route_path, col + "_isAfter", type_)
+            # Add new query parameters based on column names and data types.
+            for col, dtype in zip(dfs[index].columns, dfs[index].dtypes):
+                type_ = dtype_to_type(dtype)
+                self._add_query_param(route_path, col, type_)
+                # Use as a flag to select only given columns
+                self._add_query_param(route_path, col + "_selected", bool)
+                if type_ in (int, float):
+                    self._add_query_param(route_path, col + "_greaterThan", type_)
+                    self._add_query_param(route_path, col + "_greaterThanEqual", type_)
+                    self._add_query_param(route_path, col + "_lessThan", type_)
+                    self._add_query_param(route_path, col + "_lessThanEqual", type_)
+                elif type_ == str:
+                    self._add_query_param(route_path, col + "_contains", type_)
+                    self._add_query_param(route_path, col + "_like", type_)
+                    self._add_query_param(route_path, col + "_regex", type_)
+                    if is_date_string(dfs[index][col].iloc[dfs[index][col].first_valid_index()]):
+                        self._add_query_param(route_path, col + "_isBefore", type_)
+                        self._add_query_param(route_path, col + "_isAfter", type_)
+            index += 1
 
     def query_database(self, sql_query):
         """Executes a SQL query on the database and returns rows as list of dicts."""
@@ -194,10 +211,15 @@ class FastAPI_CSV(FastAPI):
 
         # Download excel file from Google Sheets, read it with pandas and write to
         # database.
-        df = pd.read_csv(self.csv_path)
-        df.columns=df.columns.str.replace('%','')
-        self.con = sqlite3.connect(":memory:", check_same_thread=False)
-        df.to_sql(self.table_name, self.con)
+
+        index = 0
+        dfs=[]
+        for p in self.csv_paths:
+            df = pd.read_csv(p)
+            df.columns=df.columns.str.replace('%','')
+            df.to_sql(self.table_names[index], self.con)
+            dfs.append(df)
+            index += 1         
 
         # Make database return dicts instead of tuples.
         # From: https://stackoverflow.com/questions/3300464/how-can-i-get-dict-from-sqlite-query
@@ -219,7 +241,7 @@ class FastAPI_CSV(FastAPI):
 
         self.con.create_function("REGEXP", 2, regexp)
 
-        return df
+        return dfs
 
     def _find_route(self, route_path):
         """Find a route (stored in the FastAPI instance) by its path (e.g. '/index')."""
