@@ -216,8 +216,7 @@ class FastAPI_CSV(FastAPI):
         dfs=[]
         for p in self.csv_paths:
             df = pd.read_csv(p)
-            df.columns=df.columns.str.replace('%','')
-            df.to_sql(self.table_names[index], self.con)
+            df.to_sql(self.table_names[index], self.con, index=False)
             dfs.append(df)
             index += 1         
 
