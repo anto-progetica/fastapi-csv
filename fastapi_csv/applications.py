@@ -220,7 +220,7 @@ class FastAPI_CSV(FastAPI):
             if self.col_names_replace:
                 df.rename(columns=self.col_names_replace, inplace=True)
                 
-            df.to_sql(self.table_names[index], self.con, index=False)
+            df.to_sql(self.table_names[index], self.con)
             dfs.append(df)
             index += 1         
 
