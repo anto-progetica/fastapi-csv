@@ -64,7 +64,7 @@ class FastAPI_CSV(FastAPI):
     #     # Return modified results so they get passed to the user.
     #     return results
 
-    def __init__(self, csv_paths: list([Union[str, Path]]), col_names_replace: dict = None) -> None:
+    def __init__(self, csv_paths: list([Union[str, Path]]), col_names_replace: dict = None, root_path: str = None) -> None:
         """
         Initializes a FastAPI instance that serves data from a CSV file.
 
@@ -79,12 +79,20 @@ class FastAPI_CSV(FastAPI):
 
         for path in csv_paths:
             table_names.append(Path(path).stem.replace('-', '_'))
-        
 
+        self.root_path = root_path 
+        if root_path:
+           if root_path.startswith("/"):
+              self.root_path = root_path.removeprefix("/")
+     
+        
         self.table_names = table_names
         self.con = None
         self.col_names_replace = col_names_replace
         dfs = self.update_database()
+        
+        
+
 
         # Add an endpoint for the CSV file with one query parameter for each column.
         # We hack into fastapi a bit here to inject the query parameters at runtime
@@ -143,7 +151,13 @@ class FastAPI_CSV(FastAPI):
         for tbn in self.table_names:
 
             # Add the method as GET endpoint to fastapi.
-            route_path = f"/{tbn}"
+
+            route_path = ""
+            if self.root_path:
+                route_path = f"/{self.root_path}/{tbn}"
+            else:
+                route_path = f"/{tbn}"
+
             generic_get = generic_get_wrapper(tbn)
             self.get(route_path, name=tbn)(generic_get)
         
