@@ -64,7 +64,7 @@ class FastAPI_CSV(FastAPI):
     #     # Return modified results so they get passed to the user.
     #     return results
 
-    def __init__(self, csv_paths: list([Union[str, Path]])) -> None:
+    def __init__(self, csv_paths: list([Union[str, Path]]), col_names_replace: dict = None) -> None:
         """
         Initializes a FastAPI instance that serves data from a CSV file.
 
@@ -83,6 +83,7 @@ class FastAPI_CSV(FastAPI):
 
         self.table_names = table_names
         self.con = None
+        self.col_names_replace = col_names_replace
         dfs = self.update_database()
 
         # Add an endpoint for the CSV file with one query parameter for each column.
@@ -216,6 +217,9 @@ class FastAPI_CSV(FastAPI):
         dfs=[]
         for p in self.csv_paths:
             df = pd.read_csv(p)
+            if self.col_names_replace:
+                df.rename(columns=self.col_names_replace, inplace=True)
+                
             df.to_sql(self.table_names[index], self.con, index=False)
             dfs.append(df)
             index += 1         
