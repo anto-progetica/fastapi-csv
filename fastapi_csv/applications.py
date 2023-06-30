@@ -37,7 +37,7 @@ def create_query_param(name: str, type_: Type, default) -> pydantic.fields.Model
 
 def dtype_to_type(dtype) -> Type:
     """Convert numpy/pandas dtype to normal Python type."""
-    if dtype == np.object:
+    if dtype == object:
         return str
     else:
         return type(np.zeros(1, dtype).item())
@@ -219,7 +219,7 @@ class FastAPI_CSV(FastAPI):
             df = pd.read_csv(p)
             if self.col_names_replace:
                 df.rename(columns=self.col_names_replace, inplace=True)
-                
+
             df.to_sql(self.table_names[index], self.con)
             dfs.append(df)
             index += 1         
