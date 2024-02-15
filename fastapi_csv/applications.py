@@ -75,18 +75,19 @@ class FastAPI_CSV(FastAPI):
 
         # Read CSV files to pandas dataframe and create sqlite3 database from it.
         self.csv_paths = csv_paths
-        table_names = []
-
+        self.table_names = []
+        
         for path in csv_paths:
-            table_names.append(Path(path).stem.replace('-', '_'))
+            self.table_names.append(Path(path).stem.replace('-', '_'))
+      
 
         self.root_path = root_path 
         if root_path:
            if root_path.startswith("/"):
               self.root_path = root_path.removeprefix("/")
-     
-        
-        self.table_names = table_names
+           
+          
+            
         self.con = None
         self.col_names_replace = col_names_replace
         dfs = self.update_database()
